@@ -52,5 +52,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/images/
+  # No assets declared yet - assets/models/ and assets/images/ don't
+  # exist in this scaffold. Flutter fails the build if pubspec.yaml
+  # references a path that isn't there. Add entries back here once:
+  #   - a trained + exported model file exists (assets/models/*.pt or .tflite)
+  #   - you add app icons/images (assets/images/*)
+  # Then create the actual folders/files before running `flutter run`.

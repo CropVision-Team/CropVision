@@ -116,24 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
             left: -60,
             child: _GlowCircle(color: AppColors.canopy, size: 260),
           ),
-          // Layer 3: App logo — top-left corner
-          const Positioned(
-            top: 0,
-            left: 0,
-            child: SafeArea(
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Image(
-                  image: AssetImage('assets/images/logo_dark.png'),
-                  width: 36,
-                  height: 36,
-                  fit: BoxFit.contain,
-                  semanticLabel: 'CropVision Logo',
-                ),
-              ),
-            ),
-          ),
-          // Layer 4: content
+          // Layer 3: content
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
