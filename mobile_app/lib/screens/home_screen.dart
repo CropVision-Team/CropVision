@@ -31,9 +31,25 @@ class HomeScreen extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Field Dashboard',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                      // Logo + Title
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.asset(
+                            isDark
+                                ? 'assets/images/logo_dark.png'
+                                : 'assets/images/logo_light.png',
+                            width: 32,
+                            height: 32,
+                            fit: BoxFit.contain,
+                            semanticLabel: 'CropVision Logo',
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Field Dashboard',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                        ],
                       ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
