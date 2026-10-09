@@ -21,7 +21,8 @@ class SupabaseService {
     required String password,
     required String fullName,
   }) async {
-    final response = await _client.auth.signUp(email: email, password: password);
+    final response =
+        await _client.auth.signUp(email: email, password: password);
     if (response.user != null) {
       await _client.from('profiles').insert({
         'id': response.user!.id,
@@ -74,8 +75,7 @@ class SupabaseService {
   /// requires a real filesystem File object that doesn't exist on web.
   Future<String> uploadLeafImage(Uint8List bytes) async {
     final userId = currentUser!.id;
-    final fileName =
-        '$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final fileName = '$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
 
     await _client.storage.from('leaf-images').uploadBinary(fileName, bytes);
     return _client.storage.from('leaf-images').getPublicUrl(fileName);
@@ -84,7 +84,9 @@ class SupabaseService {
   // ---------- Diagnoses ----------
 
   Future<void> saveDiagnosis(Diagnosis diagnosis) async {
-    await _client.from('diagnoses').insert(diagnosis.toInsertMap(currentUser!.id));
+    await _client
+        .from('diagnoses')
+        .insert(diagnosis.toInsertMap(currentUser!.id));
   }
 
   Future<List<Diagnosis>> fetchDiagnosisHistory() async {
@@ -147,7 +149,8 @@ class SupabaseService {
   /// even for cheap models. Same trade-offs as before: API key lives
   /// in app code (fine for a student demo), and this may fail on
   /// Chrome/web due to CORS but works fine on native Android/iOS.
-  Future<String> askAssistant(String message, {String? diagnosisContext}) async {
+  Future<String> askAssistant(String message,
+      {String? diagnosisContext}) async {
     const apiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
     if (apiKey.isEmpty) {
       return 'API key not configured. Please set the GEMINI_API_KEY environment variable.';
@@ -195,15 +198,20 @@ class SupabaseService {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body) as Map<String, dynamic>;
             final candidates = data['candidates'] as List?;
-            if (candidates == null || candidates.isEmpty) return 'No response generated.';
+            if (candidates == null || candidates.isEmpty) {
+              return 'No response generated.';
+            }
             final parts = candidates[0]['content']['parts'] as List;
-            return parts.isNotEmpty ? parts[0]['text'] as String : 'No response generated.';
+            return parts.isNotEmpty
+                ? parts[0]['text'] as String
+                : 'No response generated.';
           } else if (response.statusCode == 503 || response.statusCode == 429) {
             lastError = 'Gemini API temporary issue (${response.statusCode})';
             await Future.delayed(const Duration(milliseconds: 1000));
             continue;
           } else {
-            lastError = 'Gemini API error (${response.statusCode}): ${response.body}';
+            lastError =
+                'Gemini API error (${response.statusCode}): ${response.body}';
             break; // Try next model in list
           }
         } catch (e) {
@@ -213,7 +221,8 @@ class SupabaseService {
       }
     }
 
-    throw Exception(lastError.isNotEmpty ? lastError : 'Failed to reach Gemini API.');
+    throw Exception(
+        lastError.isNotEmpty ? lastError : 'Failed to reach Gemini API.');
   }
 
   // ---------- Dashboard stats ----------
@@ -250,11 +259,24 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(data);
   }
 
+  Future<Map<String, dynamic>?> fetchTrackedCrop(String cropName) async {
+    final data = await _client
+        .from('crop_growth_tracking')
+        .select()
+        .eq('user_id', currentUser!.id)
+        .eq('crop_name', cropName)
+        .order('created_at', ascending: false)
+        .limit(1);
+    final rows = List<Map<String, dynamic>>.from(data);
+    return rows.isEmpty ? null : rows.first;
+  }
+
   Future<void> addTrackedCrop(String cropName, DateTime plantingDate) async {
     await _client.from('crop_growth_tracking').insert({
       'user_id': currentUser!.id,
       'crop_name': cropName,
-      'planting_date': plantingDate.toIso8601String().split('T')[0], // date only
+      'planting_date':
+          plantingDate.toIso8601String().split('T')[0], // date only
     });
   }
 
