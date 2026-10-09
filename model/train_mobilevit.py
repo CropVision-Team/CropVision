@@ -24,7 +24,7 @@ Install deps:
     pip install torch torchvision timm --break-system-packages
 
 Run:
-    python train_mobilevit.py --data_dir ./dataset --epochs 15
+    python train_mobilevit.py --data_dir ./dataset --epochs 40
 
 DATA AUGMENTATION (mandatory per project spec): the goal is a model
 that generalizes to real farmer-captured photos - different angles,
@@ -33,6 +33,13 @@ PlantVillage lab photos it's trained on. Every augmentation below is
 mild/conservative on purpose (per spec: "do not use unrealistic
 augmentation strengths") - each one simulates a plausible real-world
 capture condition, not an artificial distortion.
+
+The training transform includes the transformations shown in the project
+example: horizontal/vertical flips, positive and negative rotations,
+random crop/resize, blur, brightness/darkness, sensor noise, and occasional
+grayscale. These are applied online, so a new valid variation is sampled
+each time a training image is loaded; validation and test images remain
+unchanged.
 
 TRAIN/VAL/TEST SPLIT: this now does a proper 3-way split, not just
 train/val. The test set is held out and NEVER touched during training
@@ -52,6 +59,7 @@ contain the same images either way.
 """
 
 import argparse
+from collections import defaultdict
 import os
 import random
 import time
@@ -105,13 +113,14 @@ def build_transforms(train: bool):
             # means we never zoom in so far that context is lost, and
             # never zoom out past the original framing.
             transforms.RandomResizedCrop(IMG_SIZE, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
-            # Horizontal flip - leaves photographed from either side
-            # look equally valid.
+            # Horizontal/vertical flips - leaves photographed from different
+            # orientations should not be tied to one camera direction.
             transforms.RandomHorizontalFlip(),
-            # Small rotations - camera tilt is common in handheld shots.
-            # Spec suggests up to +-30 degrees; kept at the upper end
-            # of "mild" rather than larger, unrealistic rotations.
-            transforms.RandomRotation(30),
+            transforms.RandomVerticalFlip(p=0.2),
+            # Includes both positive and negative rotations, matching the
+            # example's +45/-45 variants while keeping the distribution
+            # centered around the original image.
+            transforms.RandomRotation(45),
             # Small translation/shift - the leaf isn't always perfectly
             # centered in a farmer's photo.
             transforms.RandomAffine(degrees=0, translate=(0.08, 0.08)),
@@ -129,11 +138,13 @@ def build_transforms(train: bool):
             # (badly blurry photos should be caught by the separate
             # Image Quality Gate, not learned as "normal" by this model).
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))], p=0.2),
+            # Occasional grayscale improves robustness to poor colour balance
+            # without removing colour information from most training samples.
+            transforms.RandomGrayscale(p=0.1),
             transforms.ToTensor(),
-            transforms.Normalize(MEAN, STD),
-            # Small sensor-noise simulation - applied last, after
-            # normalization, as a small perturbation on the final tensor.
+            # Noise belongs in the [0, 1] image space, before normalization.
             AddGaussianNoise(std=0.02),
+            transforms.Normalize(MEAN, STD),
         ])
     # Validation/test transforms are intentionally NOT augmented - they
     # need to reflect real, unmodified images so the reported accuracy
@@ -151,19 +162,33 @@ def build_model(num_classes: int):
     return model
 
 
-def split_indices(n: int, val_fraction: float, test_fraction: float, seed: int = 42):
-    """One shared, seeded index split reused across all three dataset
-    objects below - this is what guarantees train/val/test never
-    overlap even though each split is a separate ImageFolder instance
-    with its own transform.
+def split_indices(labels, val_fraction: float, test_fraction: float, seed: int = 42):
+    """Create a seeded, class-stratified split with no overlap.
+
+    A plain global shuffle can leave small classes under-represented in
+    validation/test. Keeping each class represented makes the measured
+    accuracy more reliable and makes checkpoint selection less noisy.
     """
-    indices = list(range(n))
-    random.Random(seed).shuffle(indices)
-    val_size = int(n * val_fraction)
-    test_size = int(n * test_fraction)
-    val_idx = indices[:val_size]
-    test_idx = indices[val_size:val_size + test_size]
-    train_idx = indices[val_size + test_size:]
+    by_class = defaultdict(list)
+    for index, label in enumerate(labels):
+        by_class[label].append(index)
+
+    rng = random.Random(seed)
+    train_idx, val_idx, test_idx = [], [], []
+    for class_indices in by_class.values():
+        rng.shuffle(class_indices)
+        val_size = max(1, round(len(class_indices) * val_fraction))
+        test_size = max(1, round(len(class_indices) * test_fraction))
+        if val_size + test_size >= len(class_indices):
+            test_size = 1
+            val_size = max(1, len(class_indices) - 2)
+        val_idx.extend(class_indices[:val_size])
+        test_idx.extend(class_indices[val_size:val_size + test_size])
+        train_idx.extend(class_indices[val_size + test_size:])
+
+    rng.shuffle(train_idx)
+    rng.shuffle(val_idx)
+    rng.shuffle(test_idx)
     return train_idx, val_idx, test_idx
 
 
@@ -181,6 +206,10 @@ def evaluate(model, loader, device):
 
 
 def train(args):
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -194,7 +223,7 @@ def train(args):
     print(f"Found {len(class_names)} classes: {class_names}")
 
     train_idx, val_idx, test_idx = split_indices(
-        len(train_dataset_full), args.val_split, args.test_split
+        train_dataset_full.targets, args.val_split, args.test_split, args.seed
     )
     print(f"Split sizes - train: {len(train_idx)}, val: {len(val_idx)}, test: {len(test_idx)}")
 
@@ -318,10 +347,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./checkpoints")
-    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--val_split", type=float, default=0.15)
     parser.add_argument("--test_split", type=float, default=0.15)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     train(args)

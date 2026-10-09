@@ -1,13 +1,16 @@
-"""
-Step 2: Extract data.zip (downloaded by 1_download_dataset.py) and find
-the 'color' subfolder inside (matching real leaf photos, as opposed to
-'grayscale' or 'segmented' variants also in the same archive), then
-copy it to ./dataset for train_mobilevit.py to use directly.
+"""Legacy dataset step.
+
+The current ``1_download_dataset.py`` exports the dataset directly to
+``./dataset``. This file is retained for older instructions.
 """
 
 import zipfile
 import os
 import shutil
+
+if os.path.exists("./dataset"):
+    print("./dataset already exists. No extraction is required.")
+    raise SystemExit(0)
 
 zip_path = "./plantvillage_files/data.zip"
 extract_dir = "./plantvillage_extracted"
@@ -47,4 +50,4 @@ else:
     else:
         print("Copying into ./dataset (can take a few minutes)...")
         shutil.copytree(color_dir, "./dataset")
-        print("Done! You can now run: python train_mobilevit.py --data_dir ./dataset --epochs 1")
+        print("Done! You can now run: python train_mobilevit.py --data_dir ./dataset --epochs 40")
