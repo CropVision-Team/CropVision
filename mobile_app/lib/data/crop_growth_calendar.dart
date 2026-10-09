@@ -144,9 +144,60 @@ class CurrentGrowthStage {
   });
 }
 
+const Map<String, String> growthStageDescriptions = {
+  'Sowing & Planting':
+      'Sow healthy seed or transplant strong seedlings at the recommended spacing.',
+  'Crop Establishment & Vegetative Growth':
+      'Support strong roots and leaf growth with steady water, nutrition, and weed control.',
+  'Reproductive Growth & Care Management':
+      'Protect flowers and developing produce with careful watering, scouting, and pest management.',
+  'Maturation & Ripening':
+      'Reduce stress and monitor colour, size, and firmness as the produce approaches maturity.',
+  'Harvesting':
+      'Harvest when the produce reaches the expected maturity window and handle it gently.',
+};
+
+const Map<String, List<String>> growthStageRecommendations = {
+  'Sowing & Planting': [
+    'Prepare well-drained soil and use healthy seed or seedlings.',
+    'Record the planting date so the calendar can estimate later stages.',
+  ],
+  'Crop Establishment & Vegetative Growth': [
+    'Keep moisture consistent without waterlogging the root zone.',
+    'Remove competing weeds and inspect new leaves for disease or pests.',
+  ],
+  'Reproductive Growth & Care Management': [
+    'Avoid drought stress during flowering and fruit or pod formation.',
+    'Scout regularly and follow local, label-approved treatment guidance.',
+  ],
+  'Maturation & Ripening': [
+    'Check the crop frequently for maturity signs and disease spread.',
+    'Plan labour, storage, and transport before the harvest window begins.',
+  ],
+  'Harvesting': [
+    'Harvest during the cooler part of the day where possible.',
+    'Separate damaged produce and store the healthy crop appropriately.',
+  ],
+};
+
+String stageDescription(String stageName) =>
+    growthStageDescriptions[stageName] ??
+    'Follow the crop calendar and monitor the plant regularly.';
+
+List<String> stageRecommendations(String stageName) =>
+    growthStageRecommendations[stageName] ?? const [];
+
+DateTime? expectedHarvestDate(String cropName, DateTime plantingDate) {
+  final stages = cropGrowthCalendar[cropName];
+  if (stages == null || stages.isEmpty) return null;
+  final harvestStage = stages[stages.length - 1];
+  return plantingDate.add(Duration(days: harvestStage.startDay));
+}
+
 /// Returns null if we have no calendar data for this crop, or if the
 /// planting date is in the future.
-CurrentGrowthStage? getCurrentGrowthStage(String cropName, DateTime plantingDate) {
+CurrentGrowthStage? getCurrentGrowthStage(
+    String cropName, DateTime plantingDate) {
   final stages = cropGrowthCalendar[cropName];
   if (stages == null) return null;
 
@@ -154,7 +205,8 @@ CurrentGrowthStage? getCurrentGrowthStage(String cropName, DateTime plantingDate
   if (daysSincePlanting < 0) return null;
 
   for (final range in stages) {
-    final withinRange = range.endDay == null || daysSincePlanting < range.endDay!;
+    final withinRange =
+        range.endDay == null || daysSincePlanting < range.endDay!;
     if (withinRange && daysSincePlanting >= range.startDay) {
       return CurrentGrowthStage(
         stageName: range.stageName,

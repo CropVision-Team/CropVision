@@ -16,6 +16,7 @@ class CalendarScreen extends StatefulWidget {
 class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  String? _suggestedCrop;
   List<Map<String, dynamic>> _reminders = [];
   List<Map<String, dynamic>> _trackedCrops = [];
   bool _loading = true;
@@ -23,6 +24,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final argument = ModalRoute.of(context)?.settings.arguments;
+      if (argument is String && cropGrowthCalendar.containsKey(argument)) {
+        setState(() => _suggestedCrop = argument);
+      }
+    });
     _loadReminders();
     _loadTrackedCrops();
   }
@@ -45,7 +52,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   List<Map<String, dynamic>> _remindersForDay(DateTime day) {
     return _reminders.where((r) {
       final date = DateTime.parse(r['reminder_date'] as String);
-      return date.year == day.year && date.month == day.month && date.day == day.day;
+      return date.year == day.year &&
+          date.month == day.month &&
+          date.day == day.day;
     }).toList();
   }
 
@@ -67,7 +76,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             TextField(
               controller: descController,
-              decoration: const InputDecoration(labelText: 'Description (optional)'),
+              decoration:
+                  const InputDecoration(labelText: 'Description (optional)'),
             ),
           ],
         ),
@@ -97,7 +107,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _showAddCropDialog() async {
-    String? selectedCrop = cropGrowthCalendar.keys.first;
+    String? selectedCrop = _suggestedCrop ?? cropGrowthCalendar.keys.first;
     DateTime plantingDate = DateTime.now();
 
     final confirmed = await showDialog<bool>(
@@ -221,7 +231,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       firstDay: DateTime.utc(2020, 1, 1),
                       lastDay: DateTime.utc(2035, 12, 31),
                       focusedDay: _focusedDay,
-                      selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                      selectedDayPredicate: (day) =>
+                          isSameDay(_selectedDay, day),
                       onDaySelected: (selected, focused) {
                         setState(() {
                           _selectedDay = selected;
@@ -232,8 +243,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       headerStyle: const HeaderStyle(
                         formatButtonVisible: false,
                         titleCentered: true,
-                        titleTextStyle:
-                            TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+                        titleTextStyle: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 17),
                       ),
                       calendarStyle: CalendarStyle(
                         todayDecoration: BoxDecoration(
@@ -248,7 +259,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           color: AppColors.rust,
                           shape: BoxShape.circle,
                         ),
-                        weekendTextStyle: const TextStyle(color: AppColors.rust),
+                        weekendTextStyle:
+                            const TextStyle(color: AppColors.rust),
                       ),
                     ),
                   ),
@@ -265,7 +277,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       child: Column(
                         children: [
                           Icon(Icons.event_available,
-                              size: 40, color: AppColors.ink.withValues(alpha: 0.25)),
+                              size: 40,
+                              color: AppColors.ink.withValues(alpha: 0.25)),
                           const SizedBox(height: 8),
                           Text('No reminders for this day',
                               style: TextStyle(
@@ -291,14 +304,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             leading: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: AppColors.chlorotic.withValues(alpha: 0.15),
+                                color:
+                                    AppColors.chlorotic.withValues(alpha: 0.15),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.notifications_active,
                                   color: AppColors.chlorotic),
                             ),
                             title: Text(r['title'] as String,
-                                style: const TextStyle(fontWeight: FontWeight.w600)),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
                             subtitle: r['description'] != null
                                 ? Text(r['description'] as String)
                                 : null,
@@ -308,7 +323,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Tracked Crops', style: Theme.of(context).textTheme.titleMedium),
+                      Text('Tracked Crops',
+                          style: Theme.of(context).textTheme.titleMedium),
                       TextButton.icon(
                         onPressed: _showAddCropDialog,
                         icon: const Icon(Icons.add, size: 18),
@@ -323,27 +339,35 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       child: Column(
                         children: [
                           Icon(Icons.eco_outlined,
-                              size: 40, color: AppColors.ink.withValues(alpha: 0.25)),
+                              size: 40,
+                              color: AppColors.ink.withValues(alpha: 0.25)),
                           const SizedBox(height: 8),
                           Text('No crops tracked yet',
-                              style: TextStyle(color: AppColors.ink.withValues(alpha: 0.5))),
+                              style: TextStyle(
+                                  color: AppColors.ink.withValues(alpha: 0.5))),
                         ],
                       ),
                     )
                   else
                     ..._trackedCrops.map((crop) {
                       final cropName = crop['crop_name'] as String;
-                      final plantingDate = DateTime.parse(crop['planting_date'] as String);
-                      final stage = getCurrentGrowthStage(cropName, plantingDate);
+                      final plantingDate =
+                          DateTime.parse(crop['planting_date'] as String);
+                      final stage =
+                          getCurrentGrowthStage(cropName, plantingDate);
                       final stageIndex = stage == null
                           ? -1
-                          : cropGrowthCalendar[cropName]!
-                              .indexWhere((r) => r.stageName == stage.stageName);
-                      final totalStages = cropGrowthCalendar[cropName]?.length ?? 5;
-                      final progressInStage = stage == null || stage.stageEndDay == null
+                          : cropGrowthCalendar[cropName]!.indexWhere(
+                              (r) => r.stageName == stage.stageName);
+                      final totalStages =
+                          cropGrowthCalendar[cropName]?.length ?? 5;
+                      final progressInStage = stage == null ||
+                              stage.stageEndDay == null
                           ? 1.0
                           : (stage.daysSincePlanting - stage.stageStartDay) /
                               (stage.stageEndDay! - stage.stageStartDay);
+                      final harvestDate =
+                          expectedHarvestDate(cropName, plantingDate);
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -366,12 +390,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                 Expanded(
                                   child: Text(cropName,
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.w700, fontSize: 16)),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 16)),
                                 ),
                                 IconButton(
                                   icon: Icon(Icons.delete_outline,
-                                      size: 20, color: AppColors.ink.withValues(alpha: 0.4)),
-                                  onPressed: () => _deleteTrackedCrop(crop['id'] as String),
+                                      size: 20,
+                                      color:
+                                          AppColors.ink.withValues(alpha: 0.4)),
+                                  onPressed: () =>
+                                      _deleteTrackedCrop(crop['id'] as String),
                                 ),
                               ],
                             ),
@@ -381,24 +409,59 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   ? 'No growth data for this crop yet'
                                   : stage.stageName!,
                               style: const TextStyle(
-                                  color: AppColors.neon, fontWeight: FontWeight.w600, fontSize: 14.5),
+                                  color: AppColors.neon,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14.5),
                             ),
                             if (stage != null) ...[
+                              const SizedBox(height: 6),
+                              Text(stageDescription(stage.stageName!),
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: AppColors.ink
+                                          .withValues(alpha: 0.65))),
                               const SizedBox(height: 10),
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(6),
                                 child: LinearProgressIndicator(
                                   value: progressInStage.clamp(0.0, 1.0),
                                   minHeight: 8,
-                                  backgroundColor: AppColors.darkSurfaceElevated,
-                                  valueColor: const AlwaysStoppedAnimation(AppColors.neon),
+                                  backgroundColor:
+                                      AppColors.darkSurfaceElevated,
+                                  valueColor: const AlwaysStoppedAnimation(
+                                      AppColors.neon),
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Day ${stage.daysSincePlanting} • Stage ${stageIndex + 1} of $totalStages',
+                                'Day ${stage.daysSincePlanting} • Stage ${stageIndex + 1} of $totalStages'
+                                '${harvestDate == null ? '' : ' • Harvest from ${harvestDate.day}/${harvestDate.month}/${harvestDate.year}'}',
                                 style: TextStyle(
-                                    fontSize: 12.5, color: AppColors.ink.withValues(alpha: 0.5)),
+                                    fontSize: 12.5,
+                                    color:
+                                        AppColors.ink.withValues(alpha: 0.5)),
+                              ),
+                              const SizedBox(height: 12),
+                              ...stageRecommendations(stage.stageName!).map(
+                                (tip) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('• ',
+                                          style:
+                                              TextStyle(color: AppColors.neon)),
+                                      Expanded(
+                                          child: Text(tip,
+                                              style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: AppColors.ink
+                                                      .withValues(
+                                                          alpha: 0.7)))),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ],
                           ],
