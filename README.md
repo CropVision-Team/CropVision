@@ -427,7 +427,7 @@ Once `./dataset/` is populated:
 
 ```bash
 cd model
-python train_mobilevit.py --data_dir ./dataset --epochs 15
+python train_mobilevit.py --data_dir ./dataset --epochs 40
 ```
 
 Start with 2-3 epochs first to confirm the pipeline runs end-to-end

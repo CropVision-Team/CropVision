@@ -35,3 +35,16 @@ ml/*.h5
 *.log
 *.code-workspace
 
+
+# CropVision model artifacts and generated data
+model/__pycache__/
+model/tests/__pycache__/
+model/checkpoints/
+model/dataset/
+model/plantvillage_extracted/
+model/plantvillage_files/
+model/*.pt
+model/*.pth
+model/*.onnx
+model/*.tflite
+model/*.h5

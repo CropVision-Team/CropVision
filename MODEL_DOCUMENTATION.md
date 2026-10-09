@@ -116,12 +116,10 @@ and the module docstring in `train_mobilevit.py`).
 - **Architecture:** MobileViT-Small (via `timm`), fine-tuned from
   ImageNet-pretrained weights.
 - **Dataset:** PlantVillage, 14 crops, 38 disease/healthy classes.
-- **Result from actual training run:** `val_acc ≈ 0.98` after 1 epoch.
-  *(Fill in the FINAL TEST SET ACCURACY here once you re-run training
-  with this corrected script — the earlier 98%+ numbers were measured
-  under the pre-fix script, i.e. without augmentation and without a
-  proper train/val/test split, so they should be re-measured and
-  reported from a fresh run for the final submission.)*
+- **Target:** run the reproducible 40-epoch training configuration and
+  report the held-out `FINAL TEST SET ACCURACY`. A 98% result must be
+  measured on that untouched test set; it must not be claimed in advance
+  or substituted with training/validation accuracy.
 
 ---
 
@@ -167,7 +165,8 @@ each:
 - **Growth calendar day-ranges are generalized estimates**, not
   measured from this project's own data — they vary by variety,
   climate, and region in reality.
-- **Training was run for 1 epoch** in the fastest validated run,
-  achieving ~98% validation accuracy on this dataset — PlantVillage is
-  a comparatively "easy," lab-photographed dataset, so this accuracy
-  will likely not fully transfer to messier real-world field photos.
+- **Expected project target:** around **97%+** held-out test accuracy
+  on the PlantVillage-style dataset is realistic for a strong
+  MobileViT-Small fine-tune after a full 40-epoch run, but the exact
+  number must come from the final test set and may vary by split and
+  hardware.
