@@ -39,6 +39,24 @@ class SupabaseService {
     return _client.auth.signInWithPassword(email: email, password: password);
   }
 
+  Future<void> sendEmailOtp(String email) async {
+    await _client.auth.signInWithOtp(
+      email: email,
+      shouldCreateUser: false,
+    );
+  }
+
+  Future<AuthResponse> verifyEmailOtp({
+    required String email,
+    required String token,
+  }) {
+    return _client.auth.verifyOTP(
+      email: email,
+      token: token,
+      type: OtpType.email,
+    );
+  }
+
   /// Requires Google configured under Authentication > Sign In /
   /// Providers > Google in the Supabase dashboard (Client ID + Secret
   /// from a Google Cloud OAuth app) before this will actually work -

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/supabase_service.dart';
 import '../../theme/app_theme.dart';
+import 'email_otp_screen.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -241,6 +242,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                                 color: AppColors.darkBg),
                                           )
                                         : const Text('Log In'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton(
+                                    onPressed: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => EmailOtpScreen(
+                                          initialEmail:
+                                              _emailController.text.trim(),
+                                        ),
+                                      ),
+                                    ),
+                                    child: const Text('Use email OTP instead'),
                                   ),
                                   const SizedBox(height: 14),
                                   Row(
