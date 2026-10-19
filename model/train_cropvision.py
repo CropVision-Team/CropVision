@@ -31,6 +31,8 @@ import json
 import math
 import random
 import time
+import pathlib
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +46,11 @@ from torchvision import datasets, transforms
 import timm
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+if sys.platform == "win32":
+    # Older timm downloads the original XCiT / DeiT weight files, which were saved on Linux and contain a
+    # PosixPath. Without this line Windows fails with "cannot instantiate 'PosixPath' on your system".
+    pathlib.PosixPath = pathlib.WindowsPath
 
 
 # ----------------------------------------------------------------------------- helpers

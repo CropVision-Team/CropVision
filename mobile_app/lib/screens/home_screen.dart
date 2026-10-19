@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
+import '../widgets/crystal_panel.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -157,25 +158,11 @@ class _HealthOverviewCard extends StatelessWidget {
     final healthy = stats?.healthyCount ?? 0;
     final needsAttention = stats?.needsAttentionCount ?? 0;
     final healthyFraction = total == 0 ? 0.5 : healthy / total;
-    final cardBg = Theme.of(context).cardTheme.color ?? Theme.of(context).colorScheme.surface;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
+    return CrystalPanel(
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: isDark ? AppColors.neon.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.05),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isDark ? Colors.black.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      accent: isDark ? AppColors.neon : AppColors.canopy,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

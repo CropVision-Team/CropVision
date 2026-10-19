@@ -1,5 +1,15 @@
 # Mobile-Based Crop Disease Detection with Image Verification and Stage-Based Treatment Recommendation
 
+## Model-evaluation safety checks
+
+Before presenting an accuracy result, run the duplicate/source audit and follow
+the field-test protocol in [docs/models/evaluation_protocol.md](docs/models/evaluation_protocol.md).
+
+```powershell
+cd model
+python .\audit_dataset.py --train_dir .\dataset --test_dir .\official_test
+```
+
 ## Project Structure
 
 ```

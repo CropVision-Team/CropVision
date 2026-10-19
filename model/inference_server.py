@@ -27,6 +27,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from PIL import Image
 import io
+import os
 
 try:
     import timm
@@ -48,15 +49,29 @@ IMG_SIZE = 224
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 
-CHECKPOINT_PATH = "./checkpoints/mobilevit_best.pt"
+# Use CROPVISION_CHECKPOINT to serve a new hierarchical checkpoint without
+# editing code, for example: $env:CROPVISION_CHECKPOINT='.\runs\mobilevit_hier\mobilevit_s_cropvision_best.pt'
+CHECKPOINT_PATH = os.environ.get("CROPVISION_CHECKPOINT", "./checkpoints/mobilevit_best.pt")
 
 print(f"Loading checkpoint from {CHECKPOINT_PATH}...")
 checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=False)
-class_names = checkpoint["class_names"]
+hierarchical = "classes" in checkpoint and "model" in checkpoint
+class_names = checkpoint["classes"] if hierarchical else checkpoint["class_names"]
 print(f"Loaded {len(class_names)} classes: {class_names}")
 
-model = timm.create_model("mobilevit_s", pretrained=False, num_classes=len(class_names))
-model.load_state_dict(checkpoint["model_state"])
+if hierarchical:
+    from train_cropvision import CropNet
+
+    crop_names = checkpoint["crops"]
+    model = CropNet(checkpoint["backbone"], len(class_names), len(crop_names), pretrained=False)
+    model.load_state_dict(checkpoint["model"])
+    IMG_SIZE = checkpoint["img_size"]
+    MEAN = checkpoint["mean"]
+    STD = checkpoint["std"]
+else:
+    crop_names = None
+    model = timm.create_model("mobilevit_s", pretrained=False, num_classes=len(class_names))
+    model.load_state_dict(checkpoint["model_state"])
 model.eval()
 print("Model ready.")
 
@@ -81,7 +96,8 @@ def classify():
     input_tensor = transform(image).unsqueeze(0)
 
     with torch.no_grad():
-        logits = model(input_tensor)
+        output = model(input_tensor)
+        logits, crop_logits = output if hierarchical else (output, None)
         probs = F.softmax(logits, dim=1)
         confidence, predicted_idx = torch.max(probs, dim=1)
 
@@ -100,10 +116,16 @@ def classify():
         print(f"  {class_names[idx.item()]}: {p.item()*100:.2f}%")
     print("---\n")
 
-    return jsonify({
+    response = {
         "predicted_class": predicted_class,
         "confidence": round(confidence.item(), 4),
-    })
+    }
+    if crop_logits is not None:
+        crop_probs = F.softmax(crop_logits, dim=1)
+        crop_confidence, crop_idx = torch.max(crop_probs, dim=1)
+        response["predicted_crop"] = crop_names[crop_idx.item()]
+        response["crop_confidence"] = round(crop_confidence.item(), 4)
+    return jsonify(response)
 
 
 @app.route("/health", methods=["GET"])

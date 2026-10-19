@@ -141,7 +141,7 @@ def main():
     print(f"\nMistakes that picked a DIFFERENT crop: {cross_crop} of {total - correct}")
 
     print("\nMost common mix-ups (true -> predicted):")
-    for (t, p), n in confusions.most_common(8):
+    for (t, p), n in confusions.most_common(15):
         print(f"  {n:>4}  {t}  ->  {p}")
 
     with open("misclassified.csv", "w", newline="", encoding="utf-8") as f:
@@ -149,6 +149,19 @@ def main():
         w.writerow(["file", "true_class", "predicted_class", "confidence"])
         w.writerows(sorted(wrong, key=lambda r: -r[3]))
     print(f"\nSaved {len(wrong)} mistakes to misclassified.csv (most confident mistakes first).")
+
+    idx = {c: i for i, c in enumerate(class_names)}
+    cm = [[0] * n_cls for _ in range(n_cls)]
+    for i in range(n_cls):
+        cm[i][i] = per_ok[i]
+    for (t, p), n in confusions.items():
+        cm[idx[t]][idx[p]] = n
+    with open("confusion_matrix.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["true class (rows) / predicted class (columns)"] + class_names)
+        for name, row in zip(class_names, cm):
+            w.writerow([name] + row)
+    print("Saved confusion_matrix.csv (open it in Excel: rows = true class, columns = predicted class).")
 
 
 if __name__ == "__main__":

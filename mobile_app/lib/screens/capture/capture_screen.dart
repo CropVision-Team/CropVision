@@ -12,6 +12,7 @@ import '../../data/treatment_recommendations.dart';
 import '../../models/diagnosis.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/gradient_app_bar.dart';
+import '../../widgets/crystal_panel.dart';
 
 // Below this confidence, treat the image as "not one of the crops
 // this model was trained on" rather than force-accepting a low-
@@ -204,19 +205,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
         child: Column(
           children: [
             Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: AppColors.darkSurface,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
+              child: CrystalPanel(
+                padding: EdgeInsets.zero,
+                radius: 24,
+                accent: AppColors.canopy,
+                child: SizedBox(
+                  width: double.infinity,
                 child: _selectedImageBytes == null
                     ? Center(
                         child: Column(
@@ -252,6 +246,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         borderRadius: BorderRadius.circular(20),
                         child: Image.memory(_selectedImageBytes!, fit: BoxFit.cover),
                       ),
+                ),
               ),
             ),
             const SizedBox(height: 20),
