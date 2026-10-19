@@ -63,7 +63,7 @@ class DiagnosisBloc with ChangeNotifier {
     notifyListeners();
   }
 
-  void _setState({class_name}StateEnum newState) {
+  void _setState(DiagnosisBlocStateEnum newState) {
     _currentState = newState;
     notifyListeners();
   }
@@ -87,7 +87,7 @@ class DiagnosisBloc with ChangeNotifier {
       _setState(DiagnosisBlocStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in dispatchCaptureEvent: $e\n$stack');
       _setState(DiagnosisBlocStateEnum.errorRecovering);
       rethrow;
     }
@@ -112,7 +112,7 @@ class DiagnosisBloc with ChangeNotifier {
       _setState(DiagnosisBlocStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in dispatchInferenceEvent: $e\n$stack');
       _setState(DiagnosisBlocStateEnum.errorRecovering);
       rethrow;
     }
@@ -137,7 +137,7 @@ class DiagnosisBloc with ChangeNotifier {
       _setState(DiagnosisBlocStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in dispatchSaveTreatmentPlanEvent: $e\n$stack');
       _setState(DiagnosisBlocStateEnum.errorRecovering);
       rethrow;
     }
@@ -162,7 +162,7 @@ class DiagnosisBloc with ChangeNotifier {
       _setState(DiagnosisBlocStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in resetDiagnosisState: $e\n$stack');
       _setState(DiagnosisBlocStateEnum.errorRecovering);
       rethrow;
     }

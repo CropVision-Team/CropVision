@@ -63,7 +63,7 @@ class LeafDetectorService with ChangeNotifier {
     notifyListeners();
   }
 
-  void _setState({class_name}StateEnum newState) {
+  void _setState(LeafDetectorServiceStateEnum newState) {
     _currentState = newState;
     notifyListeners();
   }
@@ -87,7 +87,7 @@ class LeafDetectorService with ChangeNotifier {
       _setState(LeafDetectorServiceStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in $runtimeType: $e\n$stack');
       _setState(LeafDetectorServiceStateEnum.errorRecovering);
       rethrow;
     }
@@ -112,7 +112,7 @@ class LeafDetectorService with ChangeNotifier {
       _setState(LeafDetectorServiceStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in $runtimeType: $e\n$stack');
       _setState(LeafDetectorServiceStateEnum.errorRecovering);
       rethrow;
     }
@@ -137,7 +137,7 @@ class LeafDetectorService with ChangeNotifier {
       _setState(LeafDetectorServiceStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in $runtimeType: $e\n$stack');
       _setState(LeafDetectorServiceStateEnum.errorRecovering);
       rethrow;
     }
@@ -162,7 +162,7 @@ class LeafDetectorService with ChangeNotifier {
       _setState(LeafDetectorServiceStateEnum.idleReady);
       return simulatedResult as Map<String, dynamic>;
     } catch (e, stack) {
-      debugPrint('Error in $m_name: $e\n$stack');
+      debugPrint('Error in $runtimeType: $e\n$stack');
       _setState(LeafDetectorServiceStateEnum.errorRecovering);
       rethrow;
     }
