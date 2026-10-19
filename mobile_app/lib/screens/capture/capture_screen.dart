@@ -68,6 +68,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
       'http://10.179.243.22:8000/classify',
       'http://localhost:8000/classify',
       'http://10.12.103.0:8000/classify',
+      'http://172.17.137.171:8000/classify',
     ];
 
     Object? lastError;
