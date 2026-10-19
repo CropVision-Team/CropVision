@@ -1,68 +1,21 @@
+
 """
-Disease Classification Training Script
-----------------------------------------
-Fine-tunes a MobileViT-Small (via timm) on PlantVillage-style
-folder-structured data for lightweight, mobile-oriented inference.
+CropVision - MobileViT Small Training Script
 
-Expected dataset layout (PlantVillage default):
-    dataset/
-        Tomato___Early_blight/
-            img001.jpg
-            ...
-        Tomato___Late_blight/
-            ...
-        Tomato___healthy/
-            ...
-        Apple___Black_rot/
-            ...
+Training images: ./dataset
+Official test images: ./official_test
+Best checkpoint: ./checkpoints/mobilevit_best.pt
 
-Download PlantVillage via Hugging Face:
-    from datasets import load_dataset
-    ds = load_dataset("mohanty/PlantVillage", "color")
-
-Install deps:
-    pip install torch torchvision timm --break-system-packages
-
-Run:
-    python train_mobilevit.py --data_dir ./dataset --epochs 40
-
-DATA AUGMENTATION (mandatory per project spec): the goal is a model
-that generalizes to real farmer-captured photos - different angles,
-lighting, distances, phone cameras - not just the clean, centered
-PlantVillage lab photos it's trained on. Every augmentation below is
-mild/conservative on purpose (per spec: "do not use unrealistic
-augmentation strengths") - each one simulates a plausible real-world
-capture condition, not an artificial distortion.
-
-The training transform includes the transformations shown in the project
-example: horizontal/vertical flips, positive and negative rotations,
-random crop/resize, blur, brightness/darkness, sensor noise, and occasional
-grayscale. These are applied online, so a new valid variation is sampled
-each time a training image is loaded; validation and test images remain
-unchanged.
-
-TRAIN/VAL/TEST SPLIT: this now does a proper 3-way split, not just
-train/val. The test set is held out and NEVER touched during training
-or model selection (checkpoint saving uses val_acc, not test_acc) -
-only evaluated once at the very end, exactly per spec requirement
-"keep a final test set that the model has never seen during training."
-
-IMPORTANT BUG THIS FIXES: the previous version of this script created
-ONE ImageFolder dataset object, split it into train/val Subsets via
-random_split, then set `val_ds.dataset.transform = ...`. Because
-random_split's Subsets share the SAME underlying dataset object,
-that line silently overwrote the transform for BOTH subsets - meaning
-the training set silently lost all its augmentation, undetected. This
-version creates separate dataset objects per split (with different
-transforms), and uses one shared index split so train/val/test
-contain the same images either way.
+Training data is split into training and validation subsets.
+The official test set is kept separate and used only for final evaluation.
 """
 
 import argparse
-from collections import defaultdict
 import os
 import random
 import time
+from collections import defaultdict
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -71,10 +24,10 @@ from torchvision import datasets, transforms
 
 try:
     import timm
-except ImportError as e:
+except ImportError as exc:
     raise SystemExit(
-        "timm is required: pip install timm --break-system-packages"
-    ) from e
+        "Missing timm. Install it with: python -m pip install timm"
+    ) from exc
 
 
 IMG_SIZE = 224
@@ -82,73 +35,50 @@ MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 
 
-def add_gaussian_noise(tensor: torch.Tensor, std: float = 0.02) -> torch.Tensor:
-    """Small random noise - simulates phone camera sensor noise in
-    low light, one of the explicitly required augmentations. std=0.02
-    on a [0,1]-ish normalized tensor is mild by design.
-    """
-    return tensor + torch.randn_like(tensor) * std
-
-
 class AddGaussianNoise:
-    """Class-based (not a local lambda) so this is picklable - required
-    on Windows, where DataLoader worker processes must pickle the
-    entire transform pipeline to hand it to worker subprocesses. A
-    lambda defined inside a function is NOT picklable and crashes with
-    `_pickle.PicklingError: Can't pickle local object` the moment any
-    DataLoader worker tries to start (num_workers > 0)."""
+    """Add mild camera sensor noise to training images."""
 
-    def __init__(self, std: float = 0.02):
+    def __init__(self, std=0.02):
         self.std = std
 
-    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        return add_gaussian_noise(tensor, self.std)
+    def __call__(self, tensor):
+        return tensor + torch.randn_like(tensor) * self.std
 
 
-def build_transforms(train: bool):
-    if train:
+def build_transforms(training=False):
+    """Create separate augmentation and evaluation pipelines."""
+
+    if training:
         return transforms.Compose([
-            # Random crop + resize covers both "random crop and resize"
-            # AND "zoom in and zoom out" from the spec - scale=(0.8, 1.0)
-            # means we never zoom in so far that context is lost, and
-            # never zoom out past the original framing.
-            transforms.RandomResizedCrop(IMG_SIZE, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
-            # Horizontal/vertical flips - leaves photographed from different
-            # orientations should not be tied to one camera direction.
+            transforms.RandomResizedCrop(
+                IMG_SIZE, scale=(0.8, 1.0), ratio=(0.9, 1.1)
+            ),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(p=0.2),
-            # Includes both positive and negative rotations, matching the
-            # example's +45/-45 variants while keeping the distribution
-            # centered around the original image.
             transforms.RandomRotation(45),
-            # Small translation/shift - the leaf isn't always perfectly
-            # centered in a farmer's photo.
-            transforms.RandomAffine(degrees=0, translate=(0.08, 0.08)),
-            # Mild perspective distortion - simulates photographing the
-            # leaf at a slight angle rather than perfectly flat-on.
-            transforms.RandomPerspective(distortion_scale=0.15, p=0.3),
-            # Brightness/contrast/saturation variation - covers both
-            # "brightness variation" and "contrast variation" and
-            # "slight darker and lighter conditions" from the spec.
-            # Conservative ranges (0.2-0.25) per "do not use unrealistic
-            # augmentation strengths".
-            transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.2, hue=0.02),
-            # Mild blur, applied only sometimes - simulates a
-            # slightly-out-of-focus phone photo, not a badly blurry one
-            # (badly blurry photos should be caught by the separate
-            # Image Quality Gate, not learned as "normal" by this model).
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))], p=0.2),
-            # Occasional grayscale improves robustness to poor colour balance
-            # without removing colour information from most training samples.
+            transforms.RandomAffine(
+                degrees=0, translate=(0.08, 0.08)
+            ),
+            transforms.RandomPerspective(
+                distortion_scale=0.15, p=0.3
+            ),
+            transforms.ColorJitter(
+                brightness=0.25,
+                contrast=0.25,
+                saturation=0.2,
+                hue=0.02,
+            ),
+            transforms.RandomApply([
+                transforms.GaussianBlur(
+                    kernel_size=3, sigma=(0.1, 1.0)
+                )
+            ], p=0.2),
             transforms.RandomGrayscale(p=0.1),
             transforms.ToTensor(),
-            # Noise belongs in the [0, 1] image space, before normalization.
             AddGaussianNoise(std=0.02),
             transforms.Normalize(MEAN, STD),
         ])
-    # Validation/test transforms are intentionally NOT augmented - they
-    # need to reflect real, unmodified images so the reported accuracy
-    # means what it says.
+
     return transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
@@ -156,202 +86,363 @@ def build_transforms(train: bool):
     ])
 
 
-def build_model(num_classes: int):
-    # mobilevit_s = MobileViT-Small, pretrained on ImageNet
-    model = timm.create_model("mobilevit_s", pretrained=True, num_classes=num_classes)
-    return model
+def split_train_val_indices(labels, val_fraction=0.15, seed=42):
+    """Create reproducible, class-stratified training/validation splits."""
 
+    if not 0.0 < val_fraction < 1.0:
+        raise ValueError("val_fraction must be between 0 and 1.")
 
-def split_indices(labels, val_fraction: float, test_fraction: float, seed: int = 42):
-    """Create a seeded, class-stratified split with no overlap.
-
-    A plain global shuffle can leave small classes under-represented in
-    validation/test. Keeping each class represented makes the measured
-    accuracy more reliable and makes checkpoint selection less noisy.
-    """
     by_class = defaultdict(list)
+
     for index, label in enumerate(labels):
         by_class[label].append(index)
 
     rng = random.Random(seed)
-    train_idx, val_idx, test_idx = [], [], []
+    train_indices = []
+    val_indices = []
+
     for class_indices in by_class.values():
         rng.shuffle(class_indices)
+
+        if len(class_indices) < 2:
+            raise ValueError(
+                "Every class needs at least two images for the split."
+            )
+
         val_size = max(1, round(len(class_indices) * val_fraction))
-        test_size = max(1, round(len(class_indices) * test_fraction))
-        if val_size + test_size >= len(class_indices):
-            test_size = 1
-            val_size = max(1, len(class_indices) - 2)
-        val_idx.extend(class_indices[:val_size])
-        test_idx.extend(class_indices[val_size:val_size + test_size])
-        train_idx.extend(class_indices[val_size + test_size:])
+        val_size = min(val_size, len(class_indices) - 1)
 
-    rng.shuffle(train_idx)
-    rng.shuffle(val_idx)
-    rng.shuffle(test_idx)
-    return train_idx, val_idx, test_idx
+        val_indices.extend(class_indices[:val_size])
+        train_indices.extend(class_indices[val_size:])
+
+    rng.shuffle(train_indices)
+    rng.shuffle(val_indices)
+
+    return train_indices, val_indices
 
 
-def evaluate(model, loader, device):
+def build_model(num_classes):
+    """Create MobileViT Small with pretrained ImageNet weights."""
+    return timm.create_model(
+        "mobilevit_s",
+        pretrained=True,
+        num_classes=num_classes,
+    )
+
+
+def evaluate(model, loader, device, criterion=None):
+    """Evaluate loss and accuracy without updating model weights."""
+
     model.eval()
-    correct, total = 0, 0
-    with torch.no_grad():
+    total = 0
+    correct = 0
+    total_loss = 0.0
+
+    with torch.inference_mode():
         for images, labels in loader:
-            images, labels = images.to(device), labels.to(device)
+            images = images.to(device)
+            labels = labels.to(device)
+
             outputs = model(images)
-            _, predicted = torch.max(outputs, 1)
+            predictions = outputs.argmax(dim=1)
+
+            correct += (predictions == labels).sum().item()
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-    return correct / total if total else 0.0
+
+            if criterion is not None:
+                loss = criterion(outputs, labels)
+                total_loss += loss.item() * labels.size(0)
+
+    accuracy = correct / total if total else 0.0
+    average_loss = total_loss / total if total and criterion else None
+
+    return accuracy, average_loss
 
 
 def train(args):
     random.seed(args.seed)
     torch.manual_seed(args.seed)
+
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
 
-    # Two separate ImageFolder objects over the SAME directory, each
-    # with its own transform - this is the fix for the shared-transform
-    # bug described in the module docstring above. A third one is
-    # created for the held-out test split, also with clean transforms.
-    train_dataset_full = datasets.ImageFolder(args.data_dir, transform=build_transforms(train=True))
-    eval_dataset_full = datasets.ImageFolder(args.data_dir, transform=build_transforms(train=False))
-    class_names = train_dataset_full.classes
-    print(f"Found {len(class_names)} classes: {class_names}")
-
-    train_idx, val_idx, test_idx = split_indices(
-        train_dataset_full.targets, args.val_split, args.test_split, args.seed
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
     )
-    print(f"Split sizes - train: {len(train_idx)}, val: {len(val_idx)}, test: {len(test_idx)}")
 
-    train_ds = Subset(train_dataset_full, train_idx)
-    val_ds = Subset(eval_dataset_full, val_idx)
-    test_ds = Subset(eval_dataset_full, test_idx)
+    print("=" * 60)
+    print("CropVision MobileViT Small Training")
+    print("=" * 60)
+    print(f"Device: {device}")
 
-    # num_workers=0 (main process only) - deliberately not using
-    # multiprocessing workers here. Windows DataLoader workers require
-    # pickling the entire dataset+transform pipeline to hand off to
-    # worker subprocesses, which is a recurring source of fragile,
-    # hard-to-debug crashes on Windows specifically (as opposed to
-    # Linux/Mac). Single-process loading is slightly slower but far
-    # more robust - worth the tradeoff given training already runs for
-    # hours; an extra robustness margin matters more than the modest
-    # loading-speed gain here.
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
+    training_path = Path(args.data_dir)
+    test_path = Path(args.test_dir)
+
+    if not training_path.is_dir():
+        raise FileNotFoundError(
+            f"Training folder not found: {training_path.resolve()}"
+        )
+
+    if not test_path.is_dir():
+        raise FileNotFoundError(
+            f"Official test folder not found: {test_path.resolve()}"
+        )
+
+    # Separate datasets ensure training augmentation does not affect
+    # validation or official test images.
+    train_full = datasets.ImageFolder(
+        str(training_path),
+        transform=build_transforms(training=True),
+    )
+
+    validation_full = datasets.ImageFolder(
+        str(training_path),
+        transform=build_transforms(training=False),
+    )
+
+    official_test = datasets.ImageFolder(
+        str(test_path),
+        transform=build_transforms(training=False),
+    )
+
+    class_names = train_full.classes
+
+    if len(class_names) != 38:
+        raise RuntimeError(
+            f"Expected 38 classes, but found {len(class_names)}."
+        )
+
+    if validation_full.class_to_idx != train_full.class_to_idx:
+        raise RuntimeError("Training and validation classes do not match.")
+
+    if official_test.class_to_idx != train_full.class_to_idx:
+        raise RuntimeError(
+            "Official test class names or class indices do not match "
+            "the training dataset."
+        )
+
+    print(f"Classes: {len(class_names)}")
+    print(f"Training source images: {len(train_full)}")
+    print(f"Official test images: {len(official_test)}")
+
+    train_indices, val_indices = split_train_val_indices(
+        train_full.targets,
+        val_fraction=args.val_split,
+        seed=args.seed,
+    )
+
+    train_dataset = Subset(train_full, train_indices)
+    val_dataset = Subset(validation_full, val_indices)
+
+    print(f"Training subset: {len(train_dataset)}")
+    print(f"Validation subset: {len(val_dataset)}")
+    print(f"Official test set: {len(official_test)}")
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    test_loader = DataLoader(
+        official_test,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    print("\nLoading pretrained MobileViT Small...")
     model = build_model(len(class_names)).to(device)
+
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=args.epochs,
+    )
 
-    # Sanity check: snapshot one BatchNorm weight BEFORE any training,
-    # then compare it after the very first optimizer.step() below. If
-    # it hasn't moved from its default-initialized value (1.0), that's
-    # an immediate, few-seconds signal that gradients aren't reaching
-    # the model's parameters at all - catching this bug in seconds
-    # rather than after hours of training that quietly did nothing.
-    _sanity_param_name = "stem.bn.weight"
-    _sanity_before = model.state_dict()[_sanity_param_name].clone()
-    _sanity_checked = False
+    checkpoint_dir = Path(args.output_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    best_acc = 0.0
+    checkpoint_path = checkpoint_dir / "mobilevit_best.pt"
+    best_val_accuracy = -1.0
+
+    # Confirm that a trainable parameter changes after an optimizer step.
+    sanity_name = "stem.bn.weight"
+    sanity_before = model.state_dict().get(sanity_name)
+
+    if sanity_before is not None:
+        sanity_before = sanity_before.detach().clone()
+
+    sanity_checked = False
+
     for epoch in range(args.epochs):
         model.train()
-        start = time.time()
+        epoch_start = time.time()
         running_loss = 0.0
-        for batch_idx, (images, labels) in enumerate(train_loader):
-            images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
+
+        print(f"\nEpoch {epoch + 1}/{args.epochs}")
+
+        for batch_index, (images, labels) in enumerate(train_loader):
+            images = images.to(device)
+            labels = labels.to(device)
+
+            optimizer.zero_grad(set_to_none=True)
+
             outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+
             running_loss += loss.item() * images.size(0)
 
-            if not _sanity_checked:
-                _sanity_checked = True
-                _after = model.state_dict()[_sanity_param_name]
-                moved = not torch.equal(_sanity_before, _after)
-                print(
-                    f"\nSANITY CHECK after first optimizer step: "
-                    f"'{_sanity_param_name}' changed = {moved}"
-                )
-                if not moved:
-                    print(
-                        "WARNING: weights did NOT change after the first training "
-                        "step. Training is not actually updating the model - stop "
-                        "now (Ctrl+C) rather than waiting hours for a broken run. "
-                        "Check that loss.backward() and optimizer.step() are being "
-                        "reached, and that model.parameters() (not a frozen copy) "
-                        "was passed to the optimizer.\n"
-                    )
-                print()
+            if not sanity_checked:
+                sanity_checked = True
+                sanity_after = model.state_dict().get(sanity_name)
 
-            # Print progress every 20 batches - lets you WATCH loss
-            # actually decrease during training, rather than waiting
-            # hours to find out only at the end whether learning
-            # happened at all. A loss that stays flat/doesn't decrease
-            # from batch to batch is an early warning sign, not
-            # something to only discover after the full epoch.
-            if batch_idx % 20 == 0:
+                if sanity_before is not None and sanity_after is not None:
+                    changed = not torch.equal(
+                        sanity_before, sanity_after
+                    )
+                    print(f"Weight update sanity check: {changed}")
+
+                    if not changed:
+                        raise RuntimeError(
+                            "The checked model parameter did not change. "
+                            "Stop and investigate the training setup."
+                        )
+
+            if batch_index % args.log_every == 0:
                 print(
-                    f"  epoch {epoch+1}, batch {batch_idx}/{len(train_loader)} "
-                    f"| batch_loss={loss.item():.4f}"
+                    f"  Batch {batch_index + 1}/{len(train_loader)} "
+                    f"| Loss: {loss.item():.4f}"
                 )
 
         scheduler.step()
-        train_loss = running_loss / len(train_ds)
 
-        # Model selection uses VALIDATION accuracy only - the test set
-        # is never looked at until the very end, per spec.
-        val_acc = evaluate(model, val_loader, device)
-
-        print(
-            f"Epoch {epoch+1}/{args.epochs} | "
-            f"train_loss={train_loss:.4f} | val_acc={val_acc:.4f} | "
-            f"time={time.time()-start:.1f}s"
+        train_loss = running_loss / len(train_dataset)
+        val_accuracy, val_loss = evaluate(
+            model, val_loader, device, criterion
         )
 
-        if val_acc > best_acc:
-            best_acc = val_acc
-            os.makedirs(args.output_dir, exist_ok=True)
+        elapsed = time.time() - epoch_start
+
+        print(
+            f"Epoch summary | "
+            f"Train loss: {train_loss:.4f} | "
+            f"Validation loss: {val_loss:.4f} | "
+            f"Validation accuracy: {val_accuracy * 100:.2f}% | "
+            f"Time: {elapsed / 60:.1f} minutes"
+        )
+
+        # Save the best model based on validation accuracy only.
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+
             torch.save(
-                {"model_state": model.state_dict(), "class_names": class_names},
-                os.path.join(args.output_dir, "mobilevit_best.pt"),
+                {
+                    "model_state": model.state_dict(),
+                    "class_names": class_names,
+                },
+                checkpoint_path,
             )
-            print(f"  -> saved new best checkpoint (val_acc={val_acc:.4f})")
 
-    print(f"Training complete. Best val_acc={best_acc:.4f}")
+            print(f"Saved best checkpoint: {checkpoint_path.resolve()}")
 
-    # Final, one-time evaluation on the held-out test set - this is the
-    # number to report/document, since it's the only one the model
-    # never influenced its own training or checkpoint-selection with.
-    print("Loading best checkpoint for final test-set evaluation...")
-    best_checkpoint = torch.load(
-        os.path.join(args.output_dir, "mobilevit_best.pt"), map_location=device, weights_only=False
+    if not checkpoint_path.is_file():
+        raise RuntimeError(
+            "Training ended without creating a model checkpoint."
+        )
+
+    print("\nTraining completed.")
+    print(
+        f"Best validation accuracy: "
+        f"{best_val_accuracy * 100:.2f}%"
     )
-    model.load_state_dict(best_checkpoint["model_state"])
-    test_acc = evaluate(model, test_loader, device)
-    print(f"FINAL TEST SET ACCURACY (never seen during training): {test_acc:.4f}")
-    print("Report this number, not val_acc, as the model's real-world accuracy estimate.")
 
-    print("Next step: run inference_server.py to serve this model over HTTP.")
+    # Evaluate the best saved model on the untouched official test set.
+    print("\nLoading best checkpoint for final official test evaluation...")
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=False,
+    )
+
+    if checkpoint.get("class_names") != class_names:
+        raise RuntimeError(
+            "Saved checkpoint class order does not match the dataset."
+        )
+
+    model.load_state_dict(checkpoint["model_state"])
+
+    test_accuracy, _ = evaluate(
+        model, test_loader, device, criterion
+    )
+
+    print("\n" + "=" * 60)
+    print(f"FINAL OFFICIAL TEST ACCURACY: {test_accuracy * 100:.2f}%")
+    print(f"Checkpoint: {checkpoint_path.resolve()}")
+    print("=" * 60)
+    print("Use this checkpoint with the CropVision inference server.")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, default="./checkpoints")
-    parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser = argparse.ArgumentParser(
+        description="Train MobileViT Small for CropVision."
+    )
+
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default="./dataset",
+        help="Training images arranged in class folders.",
+    )
+
+    parser.add_argument(
+        "--test_dir",
+        type=str,
+        default="./official_test",
+        help="Official held-out test images arranged in class folders.",
+    )
+
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./checkpoints",
+        help="Directory where the best checkpoint is saved.",
+    )
+
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--lr", type=float, default=0.0001)
     parser.add_argument("--val_split", type=float, default=0.15)
-    parser.add_argument("--test_split", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--log_every", type=int, default=20)
+
     args = parser.parse_args()
+
+    if args.epochs < 1:
+        parser.error("--epochs must be at least 1.")
+
+    if args.batch_size < 1:
+        parser.error("--batch_size must be at least 1.")
+
     train(args)
